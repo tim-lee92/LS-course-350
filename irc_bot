@@ -1,0 +1,75 @@
+#! /Users/timmy/.rvm/rubies/ruby-2.4.0/bin/ruby
+
+require 'socket'
+require_relative './command'
+
+class IRCBot
+  def initialize(host, port, nick, channel)
+    @host = host
+    @port = port
+    @nick = nick
+    @channel = channel
+  end
+
+  def connect
+    open_socket
+    join_channel
+    start_listening
+  end
+
+  def disconnect
+    send_command "PART #{@channel}"
+    send_command 'QUIT'
+    @socket.close
+  end
+
+  private
+
+  def open_socket
+    @socket = TCPSocket.open(@host, @port)
+  end
+
+  def join_channel
+    send_command "USER #{@nick} localhost localhost :#{@nick}"
+    send_command "NICK #{@nick}"
+    send_command "JOIN #{@channel}"
+  end
+
+  def send_command(command)
+    puts '> ' + command
+    @socket.puts command
+  end
+
+  def start_listening
+    while line = @socket.gets
+      puts '< ' + line
+      command = Command.parse(line)
+      receive_command(command)
+    end
+  end
+
+  def receive_command(command)
+    if command.name == 'PING'
+      send_command "PONG :#{command.arguments.last}"
+    elsif command.name == 'PRIVMSG'
+      text = command.arguments.last
+
+      if command.arguments.first.start_with?('#')
+        match = text.match(/!reverse\s(.+)\r\Z/)
+        if match
+          reversed = match[1].reverse
+          send_command "PRIVMSG #{@channel} :#{reversed}"
+        end
+      else
+        send_command "PRIVMSG #{command.nick} :#{text}"
+      end
+    end
+  end
+end
+
+nick, channel = ARGV
+fail 'must pass nickname and channel' unless nick && channel
+fail 'channel must begin with \'#\'' unless channel.start_with?('#')
+@bot = IRCBot.new('chat.freenode.net', 6667, nick, channel)
+at_exit { @bot.disconnect }
+@bot.connect
